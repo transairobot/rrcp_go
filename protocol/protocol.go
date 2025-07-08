@@ -26,10 +26,8 @@ const (
 )
 
 const (
-	GetReq uint16 = iota + 1 // 客户端请求服务端配置文件
-	GetRes
-	Client
-	Server
+	GetConfig uint16 = iota + 1 // 客户端请求服务端配置文件
+	GetAction
 )
 
 type Header struct {

@@ -9,47 +9,23 @@ type Config struct {
 }
 
 type SensorData struct {
-	Servos     []ServoStatus       `msgpack:"servos,omitempty"`     // 舵机状态
-	Ultrasonic []UltrasonicReading `msgpack:"ultrasonic,omitempty"` // 超声波传感器读数数组
+	Servos []ServoStatus `msgpack:"servos,omitempty"`
+	Images []Image       `msgpack:"images,omitempty"`
 }
 
-type UltrasonicReading struct {
-	ID       int     `msgpack:"id"`
-	Distance float64 `msgpack:"distance"` // 厘米
-	Angle    float64 `msgpack:"angle"`    // 传感器方向
-}
-
-type ServoStatus struct {
-	// TODO
-}
-
-// ImageData 表示来自客户端的图像数据
-type ImageData struct {
-	Width  int    `msgpack:"width"`
-	Height int    `msgpack:"height"`
+type Image struct {
+	Width  uint32 `msgpack:"width"`
+	Height uint32 `msgpack:"height"`
 	Data   []byte `msgpack:"data"`
 }
 
-// ActionAck 表示对接收到的动作的确认
-type ActionAck struct {
-	ActionID  uint64      `msgpack:"action_id"`
-	Status    string      `msgpack:"status"` // "received", "executing", "completed", "failed"
-	Error     string      `msgpack:"error,omitempty"`
-	Result    interface{} `msgpack:"result,omitempty"`
-	Timestamp uint64      `msgpack:"timestamp"`
+type ServoStatus struct {
+	Angle float64 `msgpack:"angle"`
 }
 
-// Action 表示从服务器到客户端的动作命令
 type Action struct {
-	ID          uint64                 `msgpack:"id"`
-	Type        string                 `msgpack:"type"`
-	Parameters  map[string]interface{} `msgpack:"parameters"`
-	Timestamp   uint64                 `msgpack:"timestamp"`
-	Priority    int                    `msgpack:"priority"`            // 0=低, 1=正常, 2=高, 3=关键
-	Timeout     int                    `msgpack:"timeout"`             // 超时时间（毫秒）
-	RequireAck  bool                   `msgpack:"require_ack"`         // 是否需要确认
-	Cancellable bool                   `msgpack:"cancellable"`         // 是否可以取消
-	ParentID    uint64                 `msgpack:"parent_id,omitempty"` // 父动作ID（用于动作链）
+	Timestamp uint64    `msgpack:"ts,omitempty"`
+	Actions   []float64 `msgpack:"actions,omitempty"`
 }
 
 // ClientScript 表示客户端执行脚本配置
