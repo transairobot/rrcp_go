@@ -231,7 +231,7 @@ func (s *Server) handleClientData(session *ClientSession, stream *quic.Stream, m
 	f := func(data any) {
 		res, err := msgpack.Marshal(data)
 		if err != nil {
-			s.logger.Error("序列化配置失败", zap.Error(err))
+			s.logger.Error("序列化客户端数据失败", zap.Error(err))
 			return
 		}
 
