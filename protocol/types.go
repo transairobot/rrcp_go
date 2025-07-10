@@ -6,6 +6,13 @@ type Config struct {
 	ServerToClientFrequency uint32 `msgpack:"sc"`
 	// ClientToServerFrequency 表示客户端到服务器的每秒消息数
 	ClientToServerFrequency uint32 `msgpack:"cs"`
+	// 必须包含name为main的Module
+	Modules []WasmModule `msgpack:"modules"`
+}
+
+type WasmModule struct {
+	Name string `msgpack:"name"`
+	Wasm []byte `msgpack:"wasm"`
 }
 
 type SensorData struct {
