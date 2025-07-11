@@ -12,7 +12,7 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 	"go.uber.org/zap"
 
-	"robot/protocol"
+	"github.com/transairobot/rrcp_go/protocol"
 )
 
 // Server 表示机器人控制服务器

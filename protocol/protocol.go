@@ -10,7 +10,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"robot/mem"
+	"github.com/transairobot/rrcp_go/mem"
 )
 
 const maxBodyLength = 64 * 1024 * 1024
