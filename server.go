@@ -164,13 +164,13 @@ func (s *Server) handleStream(session *ClientSession, stream *quic.Stream) {
 	session.LastActivity = time.Now()
 	session.mu.Unlock()
 
-	switch msg.Flag {
+	switch msg.HandleID {
 	case protocol.GetConfig:
 		s.handleGetRequest(session, stream, msg)
 	case protocol.GetAction:
 		s.handleClientData(session, stream, msg)
 	default:
-		s.logger.Warn("未知消息标志", zap.Uint16("flag", msg.Flag))
+		s.logger.Warn("未知消息标志", zap.Uint16("flag", msg.HandleID))
 	}
 }
 
@@ -191,7 +191,7 @@ func (s *Server) handleGetRequest(session *ClientSession, stream *quic.Stream, m
 	response.SetVersion(1)
 	response.SetServerTimestamp(uint64(time.Now().UnixMilli()))
 	response.SetContentType(protocol.MessagePack)
-	response.SetFlag(protocol.GetConfig)
+	response.SetHandleID(protocol.GetConfig)
 	response.Body = configData
 
 	buf := response.Encode()
@@ -239,7 +239,7 @@ func (s *Server) handleClientData(session *ClientSession, stream *quic.Stream, m
 		response.SetVersion(1)
 		response.SetServerTimestamp(uint64(time.Now().UnixMilli()))
 		response.SetContentType(protocol.MessagePack)
-		response.SetFlag(protocol.GetAction)
+		response.SetHandleID(protocol.GetAction)
 		response.Body = res
 
 		buf := response.Encode()

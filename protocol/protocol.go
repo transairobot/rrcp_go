@@ -36,7 +36,7 @@ type Header struct {
 	BodyLength      uint64
 	ServerTimestamp uint64 // ms
 	ContentType     uint16
-	Flag            uint16
+	HandleID        uint16
 }
 
 type Message struct {
@@ -65,8 +65,8 @@ func (m *Message) SetContentType(contentTyp uint16) {
 	m.ContentType = contentTyp
 }
 
-func (m *Message) SetFlag(flag uint16) {
-	m.Flag = flag
+func (m *Message) SetHandleID(handleID uint16) {
+	m.HandleID = handleID
 }
 
 func (m *Message) Encode() mem.Buffer {
@@ -90,7 +90,7 @@ func (m *Message) Encode() mem.Buffer {
 	offset += 8
 	binary.LittleEndian.PutUint16((*buf)[offset:], m.ContentType) // offset 24-25
 	offset += 2
-	binary.LittleEndian.PutUint16((*buf)[offset:], m.Flag) // offset 26-27
+	binary.LittleEndian.PutUint16((*buf)[offset:], m.HandleID) // offset 26-27
 	offset += 2
 
 	// 写入 Body
@@ -140,7 +140,7 @@ func (m *Message) Decode(r io.Reader) error {
 	offset += 8
 	m.ContentType = binary.LittleEndian.Uint16(headerBuf[offset:])
 	offset += 2
-	m.Flag = binary.LittleEndian.Uint16(headerBuf[offset:])
+	m.HandleID = binary.LittleEndian.Uint16(headerBuf[offset:])
 	offset += 2
 
 	if m.BodyLength > maxBodyLength {
