@@ -17,7 +17,8 @@ import (
 
 // Server 表示机器人控制服务器
 type Server struct {
-	config  *protocol.Config
+	conf    *Config
+	svcConf *protocol.ServiceConfig
 	lis     *quic.Listener
 	clients sync.Map // map[*quic.Connection]*ClientSession
 	logger  *zap.Logger
@@ -31,6 +32,11 @@ type Server struct {
 	// 数据附加机制
 	attachedData   map[string]interface{} // 要附加到下一条消息的数据
 	attachedDataMu sync.RWMutex           // 保护attachedData
+}
+
+type Config struct {
+	CertFile    string
+	PrivateFile string
 }
 
 // ClientSession 表示已连接的客户端会话
@@ -59,11 +65,12 @@ type ServerStats struct {
 }
 
 // NewServer 创建一个新的机器人控制服务器
-func NewServer(config *protocol.Config) *Server {
+func NewServer(svc *protocol.ServiceConfig, conf *Config) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Server{
-		config:       config,
+		svcConf:      svc,
+		conf:         conf,
 		logger:       zap.L(),
 		ctx:          ctx,
 		cancel:       cancel,
@@ -79,7 +86,7 @@ func (s *Server) SetClientDataHandler(handler func(*protocol.SensorData, string)
 
 // Serve 启动服务器并接受连接
 func (s *Server) Serve(addr string) error {
-	cert, err := loadCert("cert.pem", "private.pem")
+	cert, err := loadCert(s.conf.CertFile, s.conf.PrivateFile)
 	if err != nil {
 		return fmt.Errorf("failed to generate certificate: %w", err)
 	}
@@ -181,7 +188,7 @@ func (s *Server) handleGetRequest(session *ClientSession, stream *quic.Stream, m
 		return
 	}
 
-	configData, err := msgpack.Marshal(s.config)
+	configData, err := msgpack.Marshal(s.svcConf)
 	if err != nil {
 		s.logger.Error("序列化配置失败", zap.Error(err))
 		return

@@ -1,7 +1,7 @@
 package protocol
 
-// Config 表示从服务器发送到客户端的配置
-type Config struct {
+// ServiceConfig 表示从服务器发送到客户端的配置
+type ServiceConfig struct {
 	// ServerToClientFrequency 表示服务器到客户端的每秒消息数
 	ServerToClientFrequency uint32 `msgpack:"sc"`
 	// ClientToServerFrequency 表示客户端到服务器的每秒消息数
