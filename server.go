@@ -3,9 +3,9 @@ package robot
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/quic-go/quic-go"
@@ -15,7 +15,6 @@ import (
 	"github.com/transairobot/rrcp_go/protocol"
 )
 
-// Server 表示机器人控制服务器
 type Server struct {
 	conf    *Config
 	svcConf *protocol.ServiceConfig
@@ -24,14 +23,13 @@ type Server struct {
 	logger  *zap.Logger
 	ctx     context.Context
 	cancel  context.CancelFunc
-	stats   *ServerStats
 
 	// 消息处理器
-	clientDataHandler func(*protocol.SensorData, string) any // clientMessage, clientAddr
+	clientDataHandler func(*protocol.SensorData, string) any
 
 	// 数据附加机制
-	attachedData   map[string]interface{} // 要附加到下一条消息的数据
-	attachedDataMu sync.RWMutex           // 保护attachedData
+	attachedData   map[string]any // 要附加到下一条消息的数据
+	attachedDataMu sync.RWMutex   // 保护attachedData
 }
 
 type Config struct {
@@ -53,17 +51,6 @@ type ClientSession struct {
 	mu   sync.RWMutex
 }
 
-// ServerStats 跟踪服务器性能指标
-type ServerStats struct {
-	StartTime        time.Time     `json:"start_time"`
-	TotalConnections atomic.Uint64 `json:"total_connections"`
-	ActiveClients    atomic.Uint64 `json:"active_clients"`
-	MessagesSent     atomic.Uint64 `json:"messages_sent"`
-	MessagesReceived atomic.Uint64 `json:"messages_received"`
-	ActionsSent      atomic.Uint64 `json:"actions_sent"` // 动作发送统计
-	Errors           atomic.Uint64 `json:"errors"`
-}
-
 // NewServer 创建一个新的机器人控制服务器
 func NewServer(svc *protocol.ServiceConfig, conf *Config) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -74,14 +61,80 @@ func NewServer(svc *protocol.ServiceConfig, conf *Config) *Server {
 		logger:       zap.L(),
 		ctx:          ctx,
 		cancel:       cancel,
-		stats:        &ServerStats{StartTime: time.Now()},
-		attachedData: make(map[string]interface{}),
+		attachedData: make(map[string]any),
 	}
 }
 
 // SetClientDataHandler 设置客户端数据消息的处理器
 func (s *Server) SetClientDataHandler(handler func(*protocol.SensorData, string) any) {
 	s.clientDataHandler = handler
+}
+
+// RequestConnection 向指定机器人发起请求（通过已建立的连接）
+func (s *Server) RequestConnection(ctx context.Context, robotAddr string, handlerID uint16, req any) (map[string]any, error) {
+	// 查找机器人连接
+	var targetSession *ClientSession
+	s.clients.Range(func(key, value any) bool {
+		session := value.(*ClientSession)
+		if session.RemoteAddr == robotAddr {
+			targetSession = session
+			return false
+		}
+		return true
+	})
+
+	if targetSession == nil {
+		return nil, fmt.Errorf("robot not connected: %s", robotAddr)
+	}
+
+	return s.requestToSession(ctx, targetSession, handlerID, req)
+}
+
+// requestToSession 向指定会话发起请求
+func (s *Server) requestToSession(ctx context.Context, session *ClientSession, handlerID uint16, req any) (map[string]any, error) {
+	// 序列化请求数据
+	reqData, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// 创建消息
+	msg := protocol.NewMessage()
+	msg.SetVersion(1)
+	msg.SetServerTimestamp(uint64(time.Now().UnixMilli()))
+	msg.SetContentType(protocol.Json)
+	msg.SetHandleID(handlerID)
+	msg.Body = reqData
+
+	// 主动打开流
+	stream, err := session.conn.OpenStreamSync(s.ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open stream: %w", err)
+	}
+	defer stream.Close()
+
+	buf := msg.Encode()
+	defer buf.Free()
+
+	if _, err := stream.Write(buf.ReadOnlyData()); err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+
+	response := protocol.NewMessage()
+	if err := response.Decode(stream); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	result := make(map[string]any)
+	if len(response.Body) > 0 {
+		if err := json.Unmarshal(response.Body, &result); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+		}
+	}
+
+	s.logger.Debug("请求完成", zap.String("robot", session.RemoteAddr), zap.Uint16("handler_id", handlerID))
+
+	return result, nil
 }
 
 // Serve 启动服务器并接受连接
@@ -142,7 +195,6 @@ func (s *Server) handleConnection(conn *quic.Conn) {
 
 	s.clients.Store(conn, session)
 	defer s.clients.Delete(conn)
-	s.stats.TotalConnections.Add(1)
 
 	s.logger.Info("客户端已连接", zap.String("remote", conn.RemoteAddr().String()))
 
@@ -226,11 +278,9 @@ func (s *Server) handleClientData(session *ClientSession, stream *quic.Stream, m
 	var clientMsg protocol.SensorData
 	if err := msgpack.Unmarshal(msg.Body, &clientMsg); err != nil {
 		s.logger.Error("反序列化客户端消息失败", zap.Error(err))
-		s.stats.Errors.Add(1)
 		return
 	}
 
-	s.stats.MessagesReceived.Add(1)
 	clientAddr := session.conn.RemoteAddr().String()
 
 	s.logger.Debug("收到客户端数据", zap.Any("sensors", clientMsg.Servos), zap.Any("images", clientMsg.Images))
@@ -266,31 +316,10 @@ func (s *Server) handleClientData(session *ClientSession, stream *quic.Stream, m
 	f(data)
 }
 
-// GetStats 返回当前服务器统计信息
-func (s *Server) GetStats() *ServerStats {
-	var activeClients uint64
-	s.clients.Range(func(key, value interface{}) bool {
-		activeClients++
-		return true
-	})
-	s.stats.ActiveClients.Store(activeClients)
-	return s.stats
-}
-
-// GetConnectedClients 返回已连接客户端地址列表
-func (s *Server) GetConnectedClients() []string {
-	var clients []string
-	s.clients.Range(func(key, value interface{}) bool {
-		conn := key.(*quic.Conn)
-		clients = append(clients, conn.RemoteAddr().String())
-		return true
-	})
-	return clients
-}
-
 // Stop 停止服务器
 func (s *Server) Stop() error {
 	s.cancel()
+
 	if s.lis != nil {
 		return s.lis.Close()
 	}
@@ -298,14 +327,14 @@ func (s *Server) Stop() error {
 }
 
 // AttachData 附加自定义数据，将与下一条服务器消息一起发送
-func (s *Server) AttachData(key string, value interface{}) {
+func (s *Server) AttachData(key string, value any) {
 	s.attachedDataMu.Lock()
 	defer s.attachedDataMu.Unlock()
 	s.attachedData[key] = value
 }
 
 // AttachDataBatch 附加多个键值对，将与下一条服务器消息一起发送
-func (s *Server) AttachDataBatch(data map[string]interface{}) {
+func (s *Server) AttachDataBatch(data map[string]any) {
 	s.attachedDataMu.Lock()
 	defer s.attachedDataMu.Unlock()
 	for k, v := range data {
@@ -314,11 +343,11 @@ func (s *Server) AttachDataBatch(data map[string]interface{}) {
 }
 
 // GetAttachedData 返回当前附加数据的副本
-func (s *Server) GetAttachedData() map[string]interface{} {
+func (s *Server) GetAttachedData() map[string]any {
 	s.attachedDataMu.RLock()
 	defer s.attachedDataMu.RUnlock()
 
-	result := make(map[string]interface{})
+	result := make(map[string]any)
 	for k, v := range s.attachedData {
 		result[k] = v
 	}
@@ -329,5 +358,5 @@ func (s *Server) GetAttachedData() map[string]interface{} {
 func (s *Server) ClearAttachedData() {
 	s.attachedDataMu.Lock()
 	defer s.attachedDataMu.Unlock()
-	s.attachedData = make(map[string]interface{})
+	s.attachedData = make(map[string]any)
 }

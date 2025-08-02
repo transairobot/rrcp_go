@@ -22,12 +22,14 @@ const (
 
 const (
 	MessagePack uint16 = iota + 1
+	Json
 	Unknown
 )
 
 const (
 	GetConfig uint16 = iota + 1 // 客户端请求服务端配置文件
 	GetAction
+	InstallReq
 )
 
 type Header struct {
